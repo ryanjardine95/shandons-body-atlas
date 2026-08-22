@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Atlas Viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(120% 90% at 50% 20%, #1c2740 0%, #10182b 55%, #0a0f1d 100%);
+  }
+  #stage { position: fixed; inset: 0; touch-action: none; }
+  #stage.picking { cursor: pointer; }
+</style>
+<script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.min.js",
+      "three/addons/": "./vendor/jsm/"
+    }
+  }
+</script>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const BATCH_THRESHOLD = 150;   // meshes per layer above which we batch into one draw call
+const PICK_OPACITY_MIN = 0.5;  // layers more translucent than this are picked "through"
+
+const state = {
+  ready: false,
+  layers: {},      // id -> {visible, opacity, loaded, loading, meshCount, triangles}
+  selected: null,
+  fps: 0,
+  lastError: null,
+};
+window.__atlasState = state;
+
+const post = (msg) => {
+  if (window.parent && window.parent !== window) window.parent.postMessage(JSON.stringify(msg), '*');
+};
+const fail = (message) => {
+  state.lastError = message;
+  post({ event: 'error', message: String(message) });
+};
+
+// ---------- renderer / scene ----------
+const canvas = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.9;
+
+const key = new THREE.DirectionalLight(0xfff3e6, 1.4);
+key.position.set(2.5, 3.5, 2.5);
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x88aaff, 0.5);
+rim.position.set(-3, 1.5, -2.5);
+scene.add(rim);
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
+camera.position.set(0, 1.2, 3.2);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 1.0, 0);
+
+const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
+
+// GLTFLoader replaces spaces with underscores in node names; undo for display.
+const displayName = (obj) => obj.name.replace(/_/g, ' ');
+
+// Hero-structure colors for organs that share a generic material in the source.
+const NAME_COLORS = [
+  [/^liver$|segment of liver/i, 0x7a3428],
+  [/^kidney\b/i, 0x6d2a24],
+  [/^urinary bladder/i, 0xd9b98a],
+  [/^gallbladder|^bile duct/i, 0x5f7f3a],
+  [/^pancreas|^pancreatic|^accessory pancreatic/i, 0xdec38f],
+  [/^spleen/i, 0x5d2a3a],
+  [/lobe of (left|right) lung/i, 0xd99a8f],
+  [/^stomach$|colon|^duodenum|^jejunum|^caecum|appendix/i, 0xc98878],
+];
+
+function colorFor(mesh) {
+  const n = displayName(mesh);
+  for (const [re, hex] of NAME_COLORS) {
+    if (re.test(n)) return new THREE.Color(hex);
+  }
+  return mesh.material?.color ?? new THREE.Color(0xbbbbbb);
+}
+
+// ---------- layers ----------
+let manifest = null;
+const layerObjects = {};   // id -> {group, meshes:[], materials:Set, batched, names:[]}
+let homeView = null;
+
+function makeIndexed(geometry) {
+  if (geometry.index) return geometry;
+  const n = geometry.attributes.position.count;
+  const idx = new (n > 65535 ? Uint32Array : Uint16Array)(n);
+  for (let i = 0; i < n; i++) idx[i] = i;
+  geometry.setIndex(new THREE.BufferAttribute(idx, 1));
+  return geometry;
+}
+
+function buildBatched(meshes, spec) {
+  let maxV = 0, maxI = 0;
+  for (const m of meshes) {
+    const g = makeIndexed(m.geometry);
+    maxV += g.attributes.position.count;
+    maxI += g.index.count;
+  }
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: spec.roughness ?? 0.5,
+    metalness: 0.0,
+  });
+  const batched = new THREE.BatchedMesh(meshes.length, maxV, maxI, material);
+  batched.sortObjects = false;
+  const names = [];
+  const colors = [];
+  for (const m of meshes) {
+    const g = m.geometry;
+    for (const key of Object.keys(g.attributes)) {
+      if (key !== 'position' && key !== 'normal') g.deleteAttribute(key);
+    }
+    const gid = batched.addGeometry(g);
+    const iid = batched.addInstance(gid);
+    batched.setMatrixAt(iid, m.matrixWorld);
+    const c = colorFor(m);
+    batched.setColorAt(iid, c);
+    names[iid] = displayName(m);
+    colors[iid] = c.clone();
+  }
+  return { batched, names, colors, material };
+}
+
+async function loadLayer(id) {
+  const spec = manifest.layers.find((l) => l.id === id);
+  const entry = state.layers[id];
+  if (!spec || entry.loaded || entry.loading) return;
+  entry.loading = true;
+  try {
+    const gltf = await new Promise((resolve, reject) => {
+      loader.load(`../models/${spec.file}`, resolve, (xhr) => {
+        if (xhr.total) post({ event: 'progress', layer: id, loaded: xhr.loaded, total: xhr.total });
+      }, reject);
+    });
+    gltf.scene.updateMatrixWorld(true);
+    const meshes = [];
+    gltf.scene.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    let triangles = 0;
+    for (const m of meshes) {
+      const g = m.geometry;
+      triangles += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    }
+
+    const group = new THREE.Group();
+    group.name = `layer:${id}`;
+    const obj = { group, spec, meshes: [], materials: new Set(), batched: null, names: [], colors: [] };
+
+    if (meshes.length > BATCH_THRESHOLD) {
+      const { batched, names, colors, material } = buildBatched(meshes, spec);
+      batched.renderOrder = spec.renderOrder;
+      obj.batched = batched;
+      obj.names = names;
+      obj.colors = colors;
+      obj.materials.add(material);
+      group.add(batched);
+    } else {
+      for (const m of meshes) {
+        m.geometry.applyMatrix4(m.matrixWorld);
+        m.position.set(0, 0, 0); m.rotation.set(0, 0, 0); m.scale.set(1, 1, 1);
+        m.renderOrder = spec.renderOrder;
+        if (m.material) {
+          const override = colorFor(m);
+          if (!override.equals(m.material.color)) {
+            m.material = m.material.clone();
+            m.material.color.copy(override);
+          }
+          m.material.roughness = spec.roughness ?? m.material.roughness;
+          obj.materials.add(m.material);
+        }
+        obj.meshes.push(m);
+        group.add(m);
+      }
+    }
+
+    layerObjects[id] = obj;
+    scene.add(group);
+    entry.loaded = true;
+    entry.loading = false;
+    entry.meshCount = meshes.length;
+    entry.triangles = Math.round(triangles);
+    applyLayerState(id);
+    post({ event: 'layerLoaded', layer: id, meshCount: meshes.length, triangles: entry.triangles });
+    if (!homeView) frameScene();
+  } catch (e) {
+    entry.loading = false;
+    fail(`layer ${id}: ${e.message ?? e}`);
+  }
+}
+
+function applyLayerState(id) {
+  const obj = layerObjects[id];
+  const entry = state.layers[id];
+  if (!obj) return;
+  obj.group.visible = entry.visible && entry.opacity > 0.001;
+  const op = entry.opacity;
+  for (const mat of obj.materials) {
+    mat.transparent = op < 0.999;
+    mat.opacity = op;
+    mat.depthWrite = op >= 0.999;
+    mat.needsUpdate = false;
+  }
+}
+
+function frameScene() {
+  const box = new THREE.Box3();
+  let has = false;
+  for (const id of Object.keys(layerObjects)) {
+    if (layerObjects[id].group.visible) { box.expandByObject(layerObjects[id].group); has = true; }
+  }
+  if (!has) return;
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const radius = Math.max(size.x, size.y, size.z) * 0.5;
+  controls.target.copy(center);
+  camera.position.set(center.x, center.y + radius * 0.1, center.z + radius * 2.6);
+  camera.near = radius / 100;
+  camera.far = radius * 20;
+  camera.updateProjectionMatrix();
+  controls.update();
+  homeView = { target: center.clone(), position: camera.position.clone() };
+}
+
+// ---------- picking ----------
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let downPos = null;
+let highlight = null; // {kind:'mesh', mesh, material} | {kind:'batch', obj, iid}
+
+function clearHighlight() {
+  if (!highlight) return;
+  if (highlight.kind === 'mesh') highlight.mesh.material = highlight.material;
+  else highlight.obj.batched.setColorAt(highlight.iid, highlight.obj.colors[highlight.iid]);
+  highlight = null;
+}
+
+function select(hit) {
+  clearHighlight();
+  if (!hit) {
+    state.selected = null;
+    post({ event: 'selected', name: null, layer: null });
+    return;
+  }
+  const { object, batchId } = hit;
+  const layerId = hit.layerId;
+  let name;
+  if (object.isBatchedMesh && batchId !== undefined) {
+    const obj = layerObjects[layerId];
+    name = obj.names[batchId];
+    const bright = obj.colors[batchId].clone().lerp(new THREE.Color(0xffffff), 0.55);
+    obj.batched.setColorAt(batchId, bright);
+    highlight = { kind: 'batch', obj, iid: batchId };
+  } else {
+    name = displayName(object);
+    const orig = object.material;
+    const hl = orig.clone();
+    hl.emissive = new THREE.Color(0x3377ff);
+    hl.emissiveIntensity = 0.55;
+    object.material = hl;
+    highlight = { kind: 'mesh', mesh: object, material: orig };
+  }
+  state.selected = { name, layer: layerId };
+  post({ event: 'selected', name, layer: layerId });
+}
+
+function pick(x, y) {
+  const rect = canvas.getBoundingClientRect();
+  pointer.set(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const targets = [];
+  for (const id of Object.keys(layerObjects)) {
+    if (layerObjects[id].group.visible) targets.push(layerObjects[id].group);
+  }
+  const hits = raycaster.intersectObjects(targets, true);
+  for (const h of hits) {
+    let g = h.object;
+    while (g && !g.name.startsWith('layer:')) g = g.parent;
+    h.layerId = g ? g.name.slice(6) : null;
+  }
+  const solid = hits.find((h) => h.layerId && state.layers[h.layerId].opacity >= PICK_OPACITY_MIN);
+  select(solid ?? hits.find((h) => h.layerId) ?? null);
+}
+
+canvas.addEventListener('pointerdown', (e) => { downPos = [e.clientX, e.clientY]; });
+canvas.addEventListener('pointerup', (e) => {
+  if (!downPos) return;
+  const dx = e.clientX - downPos[0], dy = e.clientY - downPos[1];
+  downPos = null;
+  if (dx * dx + dy * dy < 36) pick(e.clientX, e.clientY);
+});
+
+// ---------- commands ----------
+const commands = {
+  setLayerVisible({ layer, visible }) {
+    const entry = state.layers[layer];
+    if (!entry) return;
+    entry.visible = visible;
+    if (visible && !entry.loaded) loadLayer(layer);
+    else applyLayerState(layer);
+  },
+  setLayerOpacity({ layer, opacity }) {
+    const entry = state.layers[layer];
+    if (!entry) return;
+    entry.opacity = Math.max(0, Math.min(1, opacity));
+    applyLayerState(layer);
+  },
+  resetCamera() {
+    if (!homeView) return;
+    controls.target.copy(homeView.target);
+    camera.position.copy(homeView.position);
+    controls.update();
+  },
+  clearSelection() { select(null); },
+};
+
+window.addEventListener('message', (e) => {
+  let d = e.data;
+  if (typeof d === 'string') { try { d = JSON.parse(d); } catch { return; } }
+  if (d && typeof d === 'object' && typeof d.cmd === 'string' && commands[d.cmd]) {
+    try { commands[d.cmd](d); } catch (err) { fail(`${d.cmd}: ${err.message ?? err}`); }
+  }
+});
+
+// ---------- boot ----------
+async function boot() {
+  try {
+    const res = await fetch('../models/atlas.json');
+    manifest = await res.json();
+    for (const l of manifest.layers) {
+      state.layers[l.id] = {
+        visible: l.defaultVisible,
+        opacity: l.defaultOpacity ?? 1,
+        loaded: false,
+        loading: false,
+        meshCount: 0,
+        triangles: 0,
+      };
+    }
+    state.ready = true;
+    post({ event: 'ready', layers: manifest.layers.map((l) => l.id) });
+    for (const l of manifest.layers) {
+      if (l.defaultVisible) loadLayer(l.id);
+    }
+  } catch (e) {
+    fail(`boot: ${e.message ?? e}`);
+  }
+}
+
+function resize() {
+  const w = canvas.clientWidth || innerWidth;
+  const h = canvas.clientHeight || innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+let last = performance.now();
+renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  state.fps = Math.round(0.9 * state.fps + 0.1 * (1000 / Math.max(now - last, 1)));
+  last = now;
+  controls.update();
+  renderer.render(scene, camera);
+});
+
+boot();
+</script>
+</body>
+</html>
