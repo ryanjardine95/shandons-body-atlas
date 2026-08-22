@@ -145,4 +145,70 @@ void main() {
     await tester.tap(find.text('Reset view'));
     expect(viewer.sent.whereType<ResetCamera>(), hasLength(1));
   });
+
+  group('on a phone-sized screen', () {
+    Future<void> pumpPhoneAtlas(WidgetTester tester) async {
+      viewer = FakeViewerController();
+      // Compact-layout width (breakpoint is 760) with all three chips visible.
+      tester.view.physicalSize = const Size(700, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: AtlasScreen(
+          manifest: AtlasManifest.fromJsonString(_manifestJson),
+          controller: viewer,
+        ),
+      ));
+    }
+
+    testWidgets(
+        'GIVEN the compact layout WHEN the user taps a layer chip '
+        'THEN the viewer is told to show that layer', (tester) async {
+      await pumpPhoneAtlas(tester);
+
+      expect(find.byType(FilterChip), findsNWidgets(3));
+      expect(find.byType(Switch), findsNothing);
+
+      await tester.tap(find.widgetWithText(FilterChip, 'Muscles'));
+      await tester.pump();
+
+      final cmd = viewer.sent.whereType<SetLayerVisible>().single;
+      expect(cmd.layer, 'muscles');
+      expect(cmd.visible, isTrue);
+    });
+
+    testWidgets(
+        'GIVEN the compact layout WHEN the user expands the controls '
+        'THEN opacity sliders appear and drive the viewer', (tester) async {
+      await pumpPhoneAtlas(tester);
+      expect(find.byType(Slider), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.tune));
+      await tester.pumpAndSettle();
+      expect(find.byType(Slider), findsNWidgets(3));
+
+      final slider = find.descendant(
+          of: find.ancestor(
+              of: find.text('Skeleton'), matching: find.byType(Card)),
+          matching: find.byType(Slider));
+      await tester.drag(slider, const Offset(-60, 0));
+      await tester.pump();
+
+      final cmds = viewer.sent.whereType<SetLayerOpacity>().toList();
+      expect(cmds, isNotEmpty);
+      expect(cmds.last.layer, 'skeleton');
+    });
+
+    testWidgets(
+        'GIVEN the compact layout WHEN the viewer reports a tapped structure '
+        'THEN the info card shows it above the chip bar', (tester) async {
+      await pumpPhoneAtlas(tester);
+
+      viewer.emit(const StructureSelected('Kidney L', 'skeleton'));
+      await tester.pump();
+
+      expect(find.text('Left kidney'), findsOneWidget);
+      expect(find.text('Filters waste from the blood.'), findsOneWidget);
+    });
+  });
 }

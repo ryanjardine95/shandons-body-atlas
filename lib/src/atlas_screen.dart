@@ -5,6 +5,9 @@ import 'layer_panel.dart';
 import 'manifest.dart';
 import 'viewer/controller.dart';
 
+/// Below this width the side panel becomes a compact bottom bar.
+const _compactBreakpoint = 760.0;
+
 /// UI state of one layer row in the side panel.
 class LayerUiState {
   LayerUiState({required this.visible, required this.opacity});
@@ -37,6 +40,7 @@ class _AtlasScreenState extends State<AtlasScreen> {
   };
   StructureSelected? _selected;
   String? _lastError;
+  bool _sheetExpanded = false;
 
   @override
   void initState() {
@@ -91,104 +95,235 @@ class _AtlasScreenState extends State<AtlasScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
-      body: Row(
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(child: _controller.buildView()),
-                if (_lastError != null)
-                  Positioned(
-                    left: 16,
-                    bottom: 16,
-                    child: Material(
-                      color: theme.colorScheme.errorContainer,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Text('Viewer error: $_lastError',
-                            style: TextStyle(
-                                color: theme.colorScheme.onErrorContainer)),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          SizedBox(
-            width: 348,
-            child: Material(
-              color: theme.colorScheme.surfaceContainerLow,
-              child: SafeArea(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("Shandon's Body Atlas",
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.2)),
-                          const SizedBox(height: 2),
-                          Text('Layered human anatomy explorer',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant)),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: InfoCard(
-                        selected: _selected,
-                        manifest: widget.manifest,
-                        onClose: _clearSelection,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Expanded(
-                      child: LayerPanel(
-                        manifest: widget.manifest,
-                        states: _layers,
-                        onToggle: _toggleLayer,
-                        onOpacity: _setOpacity,
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: () =>
-                                _controller.send(ResetCamera()),
-                            icon: const Icon(Icons.center_focus_strong,
-                                size: 18),
-                            label: const Text('Reset view'),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            widget.manifest.attribution,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                                fontSize: 10,
-                                color: theme.colorScheme.onSurfaceVariant
-                                    .withValues(alpha: 0.7)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+      body: LayoutBuilder(
+        builder: (context, constraints) =>
+            constraints.maxWidth < _compactBreakpoint
+                ? _compactLayout(context)
+                : _wideLayout(context),
       ),
     );
   }
+
+  Widget _stage() {
+    final theme = Theme.of(context);
+    return Stack(
+      children: [
+        Positioned.fill(child: _controller.buildView()),
+        if (_lastError != null)
+          Positioned(
+            left: 16,
+            bottom: 16,
+            child: Material(
+              color: theme.colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Text('Viewer error: $_lastError',
+                    style:
+                        TextStyle(color: theme.colorScheme.onErrorContainer)),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _wideLayout(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Expanded(child: _stage()),
+        SizedBox(
+          width: 348,
+          child: Material(
+            color: theme.colorScheme.surfaceContainerLow,
+            child: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                    child: _title(theme),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: InfoCard(
+                      selected: _selected,
+                      manifest: widget.manifest,
+                      onClose: _clearSelection,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: LayerPanel(
+                      manifest: widget.manifest,
+                      states: _layers,
+                      onToggle: _toggleLayer,
+                      onOpacity: _setOpacity,
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _resetButton(),
+                        const SizedBox(height: 8),
+                        _attribution(theme),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _compactLayout(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Expanded(child: _stage()),
+        Material(
+          color: theme.colorScheme.surfaceContainerLow,
+          child: SafeArea(
+            top: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                  child: InfoCard(
+                    selected: _selected,
+                    manifest: widget.manifest,
+                    onClose: _clearSelection,
+                  ),
+                ),
+                SizedBox(
+                  height: 54,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 10),
+                          children: [
+                            for (final layer in widget.manifest.layers)
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                    right: 6, top: 8, bottom: 8),
+                                child: _layerChip(layer),
+                              ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: _sheetExpanded
+                            ? 'Hide layer controls'
+                            : 'Layer opacity controls',
+                        icon: Icon(_sheetExpanded
+                            ? Icons.keyboard_arrow_down
+                            : Icons.tune),
+                        onPressed: () => setState(
+                            () => _sheetExpanded = !_sheetExpanded),
+                      ),
+                    ],
+                  ),
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  child: !_sheetExpanded
+                      ? const SizedBox(width: double.infinity)
+                      : ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 300),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Flexible(
+                                child: LayerPanel(
+                                  manifest: widget.manifest,
+                                  states: _layers,
+                                  onToggle: _toggleLayer,
+                                  onOpacity: _setOpacity,
+                                ),
+                              ),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(10, 0, 10, 8),
+                                child: Row(
+                                  children: [
+                                    Expanded(child: _resetButton()),
+                                  ],
+                                ),
+                              ),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                                child: _attribution(theme),
+                              ),
+                            ],
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _layerChip(LayerSpec layer) {
+    final state = _layers[layer.id]!;
+    final loading = state.progress != null && !state.loaded;
+    return FilterChip(
+      label: Text(layer.label),
+      selected: state.visible,
+      showCheckmark: !loading,
+      avatar: loading
+          ? SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, value: state.progress),
+            )
+          : null,
+      onSelected: (v) => _toggleLayer(layer.id, v),
+    );
+  }
+
+  Widget _title(ThemeData theme) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text("Shandon's Body Atlas",
+              style: theme.textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w600, letterSpacing: 0.2)),
+          const SizedBox(height: 2),
+          Text('Layered human anatomy explorer',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        ],
+      );
+
+  Widget _resetButton() => OutlinedButton.icon(
+        onPressed: () => _controller.send(ResetCamera()),
+        icon: const Icon(Icons.center_focus_strong, size: 18),
+        label: const Text('Reset view'),
+      );
+
+  Widget _attribution(ThemeData theme) => Text(
+        widget.manifest.attribution,
+        style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 10,
+            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
+      );
 }

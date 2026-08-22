@@ -16,8 +16,11 @@ class _WebViewerController implements AtlasViewerController {
   _WebViewerController() {
     _viewType = 'atlas-viewer-${_instanceCounter++}';
     ui_web.platformViewRegistry.registerViewFactory(_viewType, (int viewId) {
+      // The query is a cache-buster: bump when viewer.html changes so stale
+      // copies never outlive a redeploy.
       final iframe = web.HTMLIFrameElement()
-        ..src = ui_web.assetManager.getAssetUrl('assets/viewer/viewer.html')
+        ..src =
+            '${ui_web.assetManager.getAssetUrl('assets/viewer/viewer.html')}?v=2'
         ..style.border = 'none'
         ..style.width = '100%'
         ..style.height = '100%';

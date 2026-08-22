@@ -10,7 +10,9 @@
     background:
       radial-gradient(120% 90% at 50% 20%, #1c2740 0%, #10182b 55%, #0a0f1d 100%);
   }
-  #stage { position: fixed; inset: 0; touch-action: none; }
+  /* width/height must be explicit: a canvas is a replaced element, so bare
+     inset positioning would let its attribute size dictate layout. */
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
   #stage.picking { cursor: pointer; }
 </style>
 <script type="importmap">
@@ -418,6 +420,12 @@ resize();
 let last = performance.now();
 state.frames = 0;
 renderer.setAnimationLoop(() => {
+  // Platform-view slots can resize without a window resize event reaching
+  // this iframe (e.g. Flutter relayout); self-heal each frame.
+  if (canvas.clientWidth !== renderer.domElement.width / renderer.getPixelRatio() ||
+      canvas.clientHeight !== renderer.domElement.height / renderer.getPixelRatio()) {
+    resize();
+  }
   const now = performance.now();
   state.fps = Math.round(0.9 * state.fps + 0.1 * (1000 / Math.max(now - last, 1)));
   last = now;
