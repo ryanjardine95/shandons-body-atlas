@@ -1,0 +1,30 @@
+name: shandons_body_atlas
+description: "Shandon's Body Atlas — a layered 3D human anatomy explorer."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  web: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  glados: ^1.1.7
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/viewer/
+    - assets/viewer/vendor/
+    - assets/viewer/vendor/jsm/controls/
+    - assets/viewer/vendor/jsm/loaders/
+    - assets/viewer/vendor/jsm/libs/
+    - assets/viewer/vendor/jsm/environments/
+    - assets/viewer/vendor/jsm/utils/
+    - assets/models/
