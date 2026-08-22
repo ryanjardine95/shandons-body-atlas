@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "atlas-web",
+      "runtimeExecutable": "/Users/ryanjardine/development/flutter/bin/flutter",
+      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "5317"],
+      "port": 5317
+    }
+  ]
+}

@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 
 import 'src/atlas_screen.dart';
 import 'src/manifest.dart';
-import 'src/viewer/controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,10 +28,7 @@ class AtlasApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: AtlasScreen(
-        manifest: manifest,
-        controller: createViewerController(),
-      ),
+      home: AtlasScreen(manifest: manifest),
     );
   }
 }

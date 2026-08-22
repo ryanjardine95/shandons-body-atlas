@@ -7,7 +7,8 @@
       "renderOrder": 6,
       "defaultVisible": true,
       "defaultOpacity": 0.35,
-      "roughness": 0.55
+      "roughness": 0.55,
+      "fallbackColor": "#D9A183"
     },
     {
       "id": "muscles",
@@ -16,7 +17,8 @@
       "renderOrder": 5,
       "defaultVisible": false,
       "defaultOpacity": 1.0,
-      "roughness": 0.4
+      "roughness": 0.4,
+      "fallbackColor": "#9E3B32"
     },
     {
       "id": "skeleton",
@@ -25,7 +27,8 @@
       "renderOrder": 4,
       "defaultVisible": true,
       "defaultOpacity": 1.0,
-      "roughness": 0.5
+      "roughness": 0.5,
+      "fallbackColor": "#E9E1CE"
     },
     {
       "id": "organs",
@@ -34,7 +37,8 @@
       "renderOrder": 3,
       "defaultVisible": true,
       "defaultOpacity": 1.0,
-      "roughness": 0.35
+      "roughness": 0.35,
+      "fallbackColor": "#C98878"
     },
     {
       "id": "vessels",
@@ -43,7 +47,8 @@
       "renderOrder": 2,
       "defaultVisible": false,
       "defaultOpacity": 1.0,
-      "roughness": 0.4
+      "roughness": 0.4,
+      "fallbackColor": "#B03A32"
     },
     {
       "id": "nerves",
@@ -52,7 +57,8 @@
       "renderOrder": 1,
       "defaultVisible": false,
       "defaultOpacity": 1.0,
-      "roughness": 0.5
+      "roughness": 0.5,
+      "fallbackColor": "#D9B159"
     }
   ],
   "layerBlurbs": {
@@ -70,7 +76,7 @@
     "Pancreas": "Produces digestive enzymes and the hormones insulin and glucagon that control blood sugar.",
     "Gallbladder": "Stores and concentrates bile from the liver, releasing it to digest fats.",
     "Urinary bladder": "A stretchable muscular reservoir that stores urine before it leaves the body.",
-    "Trachea": "The windpipe — a cartilage-ringed airway carrying air between the larynx and the bronchi.",
+    "Trachea": "The windpipe \u2014 a cartilage-ringed airway carrying air between the larynx and the bronchi.",
     "Left ventricle": "The heart's strongest chamber. It pumps oxygen-rich blood through the aorta to the whole body.",
     "Right ventricle": "Pumps oxygen-poor blood through the pulmonary trunk to the lungs.",
     "Left atrium": "Receives oxygen-rich blood returning from the lungs and passes it to the left ventricle.",
@@ -82,11 +88,11 @@
     "Jejunum": "The middle section of the small intestine, where most nutrients are absorbed.",
     "Oesophagus": "A muscular tube that carries swallowed food from the throat to the stomach.",
     "Tongue": "A muscular organ for taste, chewing, swallowing, and speech.",
-    "Femur": "The thigh bone — the longest and strongest bone in the human body.",
+    "Femur": "The thigh bone \u2014 the longest and strongest bone in the human body.",
     "Humerus": "The upper-arm bone, connecting the shoulder to the elbow.",
     "Sternum": "The breastbone, anchoring the ribs and protecting the heart and lungs.",
     "Clavicle": "The collarbone, strutting the shoulder away from the ribcage.",
-    "Scapula": "The shoulder blade — a flat triangular bone gliding over the back of the ribcage.",
+    "Scapula": "The shoulder blade \u2014 a flat triangular bone gliding over the back of the ribcage.",
     "Atlas (C1)": "The first cervical vertebra. It carries the skull and lets you nod your head.",
     "Axis (C2)": "The second cervical vertebra. Its peg lets the atlas pivot, turning the head.",
     "Corpus callosum": "The great bridge of nerve fibres connecting the brain's two hemispheres.",
@@ -100,5 +106,5 @@
     "Rectus abdominis": "The paired 'six-pack' muscle flexing the trunk forward.",
     "Gluteus maximus": "The body's largest muscle, extending the hip in stair-climbing and standing up."
   },
-  "attribution": "Model data: Z-Anatomy — the libre 3D atlas of anatomy (CC-BY-SA 4.0), derived from BodyParts3D © The Database Center for Life Science."
+  "attribution": "Model data: Z-Anatomy \u2014 the libre 3D atlas of anatomy (CC-BY-SA 4.0), derived from BodyParts3D \u00a9 The Database Center for Life Science."
 }

@@ -9,7 +9,7 @@
  */
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, prune, weld, simplify, meshopt } from '@gltf-transform/functions';
+import { dedup, prune, weld, simplifyPrimitive, meshopt } from '@gltf-transform/functions';
 import { MeshoptSimplifier, MeshoptEncoder } from 'meshoptimizer';
 import { readdirSync, statSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
@@ -33,7 +33,9 @@ if (!stagingDir || !outDir) {
 }
 mkdirSync(outDir, { recursive: true });
 
-const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
+const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({
+  'meshopt.encoder': MeshoptEncoder,
+});
 await MeshoptEncoder.ready;
 await MeshoptSimplifier.ready;
 
@@ -56,10 +58,17 @@ for (const file of files) {
 
   // three.js GLTFLoader strips dots from node names, so move Blender's
   // `.l`/`.r` laterality (and dedup counters) to a dot-free convention.
+  // Fascia sheets are dropped: Z-Anatomy models them on one body half only,
+  // which reads as a broken asymmetric shell over the musculature.
+  const EXCLUDE = /fascia/i;
   const renameNodes = (document) => {
     for (const node of document.getRoot().listNodes()) {
       const name = node.getName();
       if (!name) continue;
+      if (EXCLUDE.test(name)) {
+        node.setMesh(null);
+        continue;
+      }
       node.setName(
         name
           .trim()
@@ -70,18 +79,51 @@ for (const file of files) {
     }
   };
 
+  // Simplify only meshes with real triangle budgets: collapsing tiny
+  // structures (small vessels, lymph nodes, facial regions) to zero triangles
+  // makes prune() delete them, losing anatomy.
+  const SIMPLIFY_MIN_TRIANGLES = 600;
+  const ratio = RATIOS[id] ?? 0.5;
+  const selectiveSimplify = (document) => {
+    for (const mesh of document.getRoot().listMeshes()) {
+      for (const prim of mesh.listPrimitives()) {
+        const indices = prim.getIndices();
+        const count = indices
+          ? indices.getCount()
+          : prim.getAttribute('POSITION').getCount();
+        if (count / 3 < SIMPLIFY_MIN_TRIANGLES) continue;
+        simplifyPrimitive(prim, {
+          simplifier: MeshoptSimplifier,
+          ratio,
+          error: SIMPLIFY_ERROR,
+        });
+      }
+    }
+  };
+
   await doc.transform(
     renameNodes,
     dedup(),
     prune(),
     weld(),
-    simplify({
-      simplifier: MeshoptSimplifier,
-      ratio: RATIOS[id] ?? 0.5,
-      error: SIMPLIFY_ERROR,
-    }),
+    selectiveSimplify,
+    prune(),
     meshopt({ encoder: MeshoptEncoder, level: 'medium' }),
   );
+
+  // meshopt quantization re-parents a mesh onto an anonymous child node when
+  // the original node also had children (the dequant scale must not affect
+  // them). Give those children back their structure's name so picking works.
+  const parentOf = new Map();
+  for (const node of doc.getRoot().listNodes()) {
+    for (const child of node.listChildren()) parentOf.set(child, node);
+  }
+  for (const node of doc.getRoot().listNodes()) {
+    if (!node.getMesh() || node.getName()) continue;
+    let up = parentOf.get(node);
+    while (up && !up.getName()) up = parentOf.get(up);
+    if (up) node.setName(up.getName());
+  }
 
   const namedAfter = named();
   await io.write(outPath, doc);

@@ -16,17 +16,21 @@ class LayerUiState {
 }
 
 class AtlasScreen extends StatefulWidget {
-  const AtlasScreen(
-      {super.key, required this.manifest, required this.controller});
+  const AtlasScreen({super.key, required this.manifest, this.controller});
 
   final AtlasManifest manifest;
-  final AtlasViewerController controller;
+
+  /// Injected in tests; when null the platform controller is created by the
+  /// screen's State — once, after the engine is up, stable across rebuilds.
+  final AtlasViewerController? controller;
 
   @override
   State<AtlasScreen> createState() => _AtlasScreenState();
 }
 
 class _AtlasScreenState extends State<AtlasScreen> {
+  late final AtlasViewerController _controller =
+      widget.controller ?? createViewerController();
   late final Map<String, LayerUiState> _layers = {
     for (final l in widget.manifest.layers)
       l.id: LayerUiState(visible: l.defaultVisible, opacity: l.defaultOpacity),
@@ -37,12 +41,12 @@ class _AtlasScreenState extends State<AtlasScreen> {
   @override
   void initState() {
     super.initState();
-    widget.controller.events.listen(_onViewerEvent);
+    _controller.events.listen(_onViewerEvent);
   }
 
   @override
   void dispose() {
-    widget.controller.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
@@ -72,17 +76,17 @@ class _AtlasScreenState extends State<AtlasScreen> {
       layer.visible = visible;
       if (visible && !layer.loaded) layer.progress = 0;
     });
-    widget.controller.send(SetLayerVisible(id, visible));
+    _controller.send(SetLayerVisible(id, visible));
   }
 
   void _setOpacity(String id, double opacity) {
     setState(() => _layers[id]!.opacity = opacity);
-    widget.controller.send(SetLayerOpacity(id, opacity));
+    _controller.send(SetLayerOpacity(id, opacity));
   }
 
   void _clearSelection() {
     setState(() => _selected = null);
-    widget.controller.send(ClearSelection());
+    _controller.send(ClearSelection());
   }
 
   @override
@@ -94,7 +98,7 @@ class _AtlasScreenState extends State<AtlasScreen> {
           Expanded(
             child: Stack(
               children: [
-                Positioned.fill(child: widget.controller.buildView()),
+                Positioned.fill(child: _controller.buildView()),
                 if (_lastError != null)
                   Positioned(
                     left: 16,
@@ -162,7 +166,7 @@ class _AtlasScreenState extends State<AtlasScreen> {
                         children: [
                           OutlinedButton.icon(
                             onPressed: () =>
-                                widget.controller.send(ResetCamera()),
+                                _controller.send(ResetCamera()),
                             icon: const Icon(Icons.center_focus_strong,
                                 size: 18),
                             label: const Text('Reset view'),
